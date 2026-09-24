@@ -1,0 +1,110 @@
+name: React Offline Build & Deploy
+
+on:
+  push:
+    branches:
+      - suraksha-dev
+
+jobs:
+  build-deploy:
+    runs-on: self-hosted
+    timeout-minutes: 20
+
+    steps:
+      # 1. Setup Node Environment (Node 22)
+      - name: Setup Node
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "NODE_HOME=/opt/node-v22.23.1-linux-x64" >> "$GITHUB_ENV"
+          echo "/opt/node-v22.23.1-linux-x64/bin" >> "$GITHUB_PATH"
+
+      # 2. Verify Node Version
+      - name: Verify Node Version
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -v
+          npm -v
+
+      # 3. Clean Old Workspace
+      - name: Clean Workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf KAVACH_FRONTEND || true
+
+      # 4. Clone Repo from Gitea
+      - name: Clone Repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::${{ secrets.GITEATOKEN }}"
+          git clone \
+            --branch suraksha-dev \
+            --single-branch \
+            "http://kavach:${{ secrets.GITEATOKEN }}@10.77.48.155/KAVACH/KAVACH_FRONTEND.git" \
+            KAVACH_FRONTEND
+
+      # 5. Install Dependencies (requires runner to have registry access)
+      - name: Install Dependencies
+        shell: bash
+        working-directory: KAVACH_FRONTEND
+        run: |
+          set -euo pipefail
+          # Force clean install to avoid npm optional-dependency bug
+          # (https://github.com/npm/cli/issues/4828) that causes
+          # @rollup/rollup-linux-x64-gnu to go missing on some installs
+          rm -rf node_modules package-lock.json
+          npm install --no-audit --no-fund
+
+      # 6. Build React App
+      - name: Build
+        shell: bash
+        working-directory: KAVACH_FRONTEND
+        env:
+          CI: "true"
+          NODE_ENV: production
+        run: |
+          set -euo pipefail
+          npm run build
+
+      # 8. Verify Build Output (Vite always outputs to dist/)
+      - name: Verify Build Output
+        shell: bash
+        working-directory: KAVACH_FRONTEND
+        run: |
+          set -euo pipefail
+          if [ ! -d "dist" ]; then
+            echo "ERROR: No dist/ directory found after build step."
+            exit 1
+          fi
+          echo "Build output present:"
+          ls -la dist
+
+      # 9. Deploy — adjust DEPLOY_TARGET_DIR to your actual environment
+      - name: Deploy
+        shell: bash
+        working-directory: KAVACH_FRONTEND
+        env:
+          DEPLOY_TARGET_DIR: /var/www/kavach-frontend   # <-- change to your real deploy path
+        run: |
+          set -euo pipefail
+          sudo mkdir -p "$DEPLOY_TARGET_DIR"
+          sudo rsync -av --delete dist/ "$DEPLOY_TARGET_DIR"/
+          echo "Deployed dist/ to $DEPLOY_TARGET_DIR"
+
+      # 10. Reload Web Server
+      - name: Reload Web Server
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo systemctl reload nginx
+
+      # 11. Cleanup Workspace
+      - name: Cleanup
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf KAVACH_FRONTEND || true
