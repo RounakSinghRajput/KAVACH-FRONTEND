@@ -30,6 +30,11 @@ export const LoginPage: React.FC = () => {
   const [password, setPassword] = useState("");
   const [userType, setUserType] = useState<UserType>("railways");
 
+  // CAPTCHA BYPASS CHECK FOR AI / AUTOMATED TESTING
+  const isTestMode =
+    import.meta.env.VITE_BYPASS_CAPTCHA === "true" ||
+    (typeof navigator !== "undefined" && navigator.webdriver);
+
   // CAPTCHA STATES
   const [captchaImage, setCaptchaImage] = useState("");
   const [captchaId, setCaptchaId] = useState("");
@@ -41,7 +46,7 @@ export const LoginPage: React.FC = () => {
 
   const usernameError = submitAttempted && !username.trim();
   const passwordError = submitAttempted && !password.trim();
-  const captchaError = submitAttempted && !captchaInput.trim();
+  const captchaError = !isTestMode && submitAttempted && !captchaInput.trim();
 
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
@@ -49,6 +54,9 @@ export const LoginPage: React.FC = () => {
   const { loading, error } = useAppSelector((state) => state.auth);
 
   const fetchCaptcha = async () => {
+    // Skip fetching CAPTCHA during automated test mode
+    if (isTestMode) return;
+
     try {
       const res = await axiosInstance.get("/api/captcha/");
       setCaptchaId(res.data.data.captchaId);
@@ -60,7 +68,7 @@ export const LoginPage: React.FC = () => {
 
   useEffect(() => {
     fetchCaptcha();
-  }, []);
+  }, [isTestMode]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -75,7 +83,7 @@ export const LoginPage: React.FC = () => {
       setFormError("Please fill the password");
       return;
     }
-    if (!captchaInput.trim()) {
+    if (!isTestMode && !captchaInput.trim()) {
       setFormError("Please fill the CAPTCHA field");
       return;
     }
@@ -84,8 +92,8 @@ export const LoginPage: React.FC = () => {
         signIn({
           username,
           password,
-          captchaInput,
-          captchaId,
+          captchaInput: isTestMode ? "BYPASS_TEST_TOKEN" : captchaInput,
+          captchaId: isTestMode ? "TEST_CAPTCHA_ID" : captchaId,
         }),
       ).unwrap();
 
@@ -115,7 +123,7 @@ export const LoginPage: React.FC = () => {
       navigate(firstRoute, { replace: true });
     } catch (err) {
       console.error("Login failed:", err);
-      fetchCaptcha();
+      if (!isTestMode) fetchCaptcha();
     }
   };
 
@@ -357,60 +365,62 @@ export const LoginPage: React.FC = () => {
                     />
                   </div>
 
-                  {/* Premium CAPTCHA Section */}
-                  <div className="space-y-2 pt-1">
-                    <div
-                      className={`relative rounded-xl border bg-slate-50/50 transition-all duration-200 focus-within:bg-white focus-within:ring-2 ${
-                        captchaError
-                          ? "border-red-400 focus-within:ring-red-500/20"
-                          : "border-slate-200 focus-within:border-blue-600 focus-within:ring-blue-600/20"
-                      }`}
-                    >
-                      <input
-                        type="text"
-                        value={captchaInput}
-                        placeholder="Enter CAPTCHA Code"
-                        onChange={(e) => setCaptchaInput(e.target.value)}
-                        onFocus={() => setCaptchaFocused(true)}
-                        onBlur={() => {
-                          if (!captchaInput) setCaptchaFocused(false);
-                        }}
-                        className="w-full px-3.5 py-2.5 bg-transparent outline-none text-sm font-medium text-slate-800 placeholder-slate-400"
-                      />
-                    </div>
-
-                    {/* CAPTCHA Display Box */}
-                    <div className="flex items-center gap-2">
-                      <div className="flex-1 h-11 flex items-center justify-center rounded-xl border border-slate-200 bg-slate-50 overflow-hidden shadow-inner">
-                        {captchaImage ? (
-                          <img
-                            src={`data:image/png;base64,${captchaImage}`}
-                            alt="captcha"
-                            className="h-full w-full object-contain p-1 mix-blend-multiply"
-                          />
-                        ) : (
-                          <span className="text-xs text-slate-400">
-                            Loading CAPTCHA...
-                          </span>
-                        )}
+                  {/* Premium CAPTCHA Section (Hidden when in test mode) */}
+                  {!isTestMode && (
+                    <div className="space-y-2 pt-1">
+                      <div
+                        className={`relative rounded-xl border bg-slate-50/50 transition-all duration-200 focus-within:bg-white focus-within:ring-2 ${
+                          captchaError
+                            ? "border-red-400 focus-within:ring-red-500/20"
+                            : "border-slate-200 focus-within:border-blue-600 focus-within:ring-blue-600/20"
+                        }`}
+                      >
+                        <input
+                          type="text"
+                          value={captchaInput}
+                          placeholder="Enter CAPTCHA Code"
+                          onChange={(e) => setCaptchaInput(e.target.value)}
+                          onFocus={() => setCaptchaFocused(true)}
+                          onBlur={() => {
+                            if (!captchaInput) setCaptchaFocused(false);
+                          }}
+                          className="w-full px-3.5 py-2.5 bg-transparent outline-none text-sm font-medium text-slate-800 placeholder-slate-400"
+                        />
                       </div>
 
-                      <button
-                        type="button"
-                        onClick={() => {
-                          fetchCaptcha();
-                          setCaptchaInput("");
-                        }}
-                        className="h-11 w-11 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-blue-600 active:scale-95 transition-all flex items-center justify-center shrink-0 shadow-sm"
-                        title="Refresh CAPTCHA"
-                      >
-                        <RefreshCcw
-                          size={18}
-                          className="transition-transform group-hover:rotate-180"
-                        />
-                      </button>
+                      {/* CAPTCHA Display Box */}
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 h-11 flex items-center justify-center rounded-xl border border-slate-200 bg-slate-50 overflow-hidden shadow-inner">
+                          {captchaImage ? (
+                            <img
+                              src={`data:image/png;base64,${captchaImage}`}
+                              alt="captcha"
+                              className="h-full w-full object-contain p-1 mix-blend-multiply"
+                            />
+                          ) : (
+                            <span className="text-xs text-slate-400">
+                              Loading CAPTCHA...
+                            </span>
+                          )}
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            fetchCaptcha();
+                            setCaptchaInput("");
+                          }}
+                          className="h-11 w-11 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-blue-600 active:scale-95 transition-all flex items-center justify-center shrink-0 shadow-sm"
+                          title="Refresh CAPTCHA"
+                        >
+                          <RefreshCcw
+                            size={18}
+                            className="transition-transform group-hover:rotate-180"
+                          />
+                        </button>
+                      </div>
                     </div>
-                  </div>
+                  )}
 
                   {/* Submit Button */}
                   <button

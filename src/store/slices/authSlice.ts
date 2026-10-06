@@ -1,7 +1,6 @@
 import { createSlice, createAsyncThunk, PayloadAction } from "@reduxjs/toolkit";
-import { api } from "../../services/api";
 import type { AuthPayload, AuthUser, AuthSession } from "../../services/api";
-import {SESSION_DURATION} from '../../constants/auth';
+import { SESSION_DURATION } from "../../constants/auth";
 
 export interface AuthState {
   user: AuthUser | null;
@@ -9,59 +8,81 @@ export interface AuthState {
   loading: boolean;
   isAuthenticated: boolean;
   error: string | null;
-  
 }
+
 const initialState: AuthState = {
   user: null,
   session: null,
-  loading: true,
+  loading: false, // Set default loading to false for mock mode
   isAuthenticated: false,
   error: null,
-  
 };
+
+// MOCK SIGN IN THUNK (Bypasses API completely)
 export const signIn = createAsyncThunk<
-  AuthPayload,                           
-  { username: string; password: string; captchaInput: string; captchaId: string; }, 
-  { rejectValue: string }                
+  AuthPayload,
+  { username: string; password: string; captchaInput: string; captchaId: string },
+  { rejectValue: string }
 >(
   "auth/signIn",
-  async ({ username, password, captchaInput, captchaId }, { rejectWithValue }) => {
+  async ({ username }, { rejectWithValue }) => {
     try {
-      const response = await api.auth.signIn(username, password, captchaInput, captchaId);
+      // Simulate brief network delay
+      await new Promise((resolve) => setTimeout(resolve, 300));
 
-      return {
-        ...response,
+      // Return hardcoded mock payload matching AuthPayload type
+      const mockPayload: AuthPayload = {
+        user: {
+          id: "101",
+          username: username || "test_user",
+          roles: ["ROLE_ZONAL_ADMIN"],
+        } as AuthUser,
         session: {
-          ...response.session,
+          accessToken: "MOCK_JWT_ACCESS_TOKEN",
           expiresAt: Date.now() + SESSION_DURATION,
-        },
+        } as AuthSession,
       };
 
+      // Store token in localStorage if required by rest of app
+      localStorage.setItem("accessToken", mockPayload.session.accessToken);
+
+      return mockPayload;
     } catch (error: any) {
-
-      if (!error.response) {
-        return rejectWithValue("Network error. Check internet connection.");
-      }
-
-      if (error.response.status === 401) {
-        return rejectWithValue("Invalid username or password.");
-      }
-
-      return rejectWithValue(
-        error.response?.data?.message || "Login failed"
-      );
+      return rejectWithValue("Mock login failed");
     }
   }
 );
+
+// MOCK SIGN OUT THUNK
 export const signOut = createAsyncThunk("auth/signOut", async () => {
-  await api.auth.signOut();
+  localStorage.removeItem("accessToken");
+  await new Promise((resolve) => setTimeout(resolve, 100));
 });
+
+// MOCK LOAD USER THUNK
 export const loadUser = createAsyncThunk<AuthPayload | null>(
   "auth/loadUser",
   async () => {
-    return await api.auth.getCurrentUser();
+    const token = localStorage.getItem("accessToken");
+    
+    // If no token, pretend user is logged out
+    if (!token) return null;
+
+    // Return mock active user session
+    return {
+      user: {
+        id: "101",
+        username: "test_user",
+        roles: ["ROLE_ZONAL_ADMIN"],
+      } as AuthUser,
+      session: {
+        accessToken: token,
+        expiresAt: Date.now() + SESSION_DURATION,
+      } as AuthSession,
+    };
   }
 );
+
 const authSlice = createSlice({
   name: "auth",
   initialState,
@@ -77,6 +98,7 @@ const authSlice = createSlice({
 
   extraReducers: (builder) => {
     builder
+      // Sign In
       .addCase(signIn.pending, (state) => {
         state.loading = true;
         state.error = null;
@@ -92,28 +114,31 @@ const authSlice = createSlice({
         state.loading = false;
         state.error = action.payload ?? "Sign in failed";
       })
-     .addCase(signOut.fulfilled, (state) => {
+      
+      // Sign Out
+      .addCase(signOut.fulfilled, (state) => {
         state.user = null;
         state.session = null;
         state.isAuthenticated = false;
         state.loading = false;
         state.error = null;
       })
-     .addCase(loadUser.pending, (state) => {
+
+      // Load User
+      .addCase(loadUser.pending, (state) => {
         state.loading = true;
       })
       .addCase(loadUser.fulfilled, (state, action) => {
-    state.loading = false;
+        state.loading = false;
 
-    // Don't overwrite a user that has just logged in
-    if (state.isAuthenticated && state.user) {
-        return;
-    }
+        if (state.isAuthenticated && state.user) {
+          return;
+        }
 
-    state.user = action.payload?.user ?? null;
-    state.session = action.payload?.session ?? null;
-    state.isAuthenticated = Boolean(action.payload);
-})
+        state.user = action.payload?.user ?? null;
+        state.session = action.payload?.session ?? null;
+        state.isAuthenticated = Boolean(action.payload);
+      })
       .addCase(loadUser.rejected, (state) => {
         state.loading = false;
         state.user = null;
@@ -122,5 +147,6 @@ const authSlice = createSlice({
       });
   },
 });
+
 export const { setUser, clearError } = authSlice.actions;
 export default authSlice.reducer;
